@@ -106,6 +106,8 @@ const invalid_address string = "Invalid IP address."
 const missing_file string = "Invalid database file."
 const not_supported string = "This parameter is unavailable for selected data file. Please upgrade the data file."
 
+var ErrNotSupported = fmt.Errorf(not_supported)
+
 var metaok bool
 
 var country_position_offset uint32
@@ -655,7 +657,7 @@ func query(ipaddress string, mode uint32) (IP2Locationrecord, error) {
 		}
 	}
 
-	return x, fmt.Errorf(not_supported)
+	return x, ErrNotSupported
 }
 
 // for debugging purposes

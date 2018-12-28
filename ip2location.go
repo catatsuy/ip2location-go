@@ -47,6 +47,8 @@ type IP2Locationrecord struct {
 	Mobilebrand        string
 	Elevation          float32
 	Usagetype          string
+	IPFrom             int64
+	IPTo               int64
 }
 
 var f *os.File
@@ -639,6 +641,9 @@ func query(ipaddress string, mode uint32) (IP2Locationrecord, error) {
 			if mode&usagetype != 0 && usagetype_enabled {
 				x.Usagetype = readstr(readuint32(rowoffset + usagetype_position_offset))
 			}
+
+			x.IPFrom = ipfrom.Int64()
+			x.IPTo = ipto.Int64()
 
 			return x, nil
 		} else {

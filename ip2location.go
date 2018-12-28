@@ -387,152 +387,125 @@ func Api_version() string {
 	return api_version
 }
 
-// populate record with message
-func loadmessage(mesg string) IP2Locationrecord {
-	var x IP2Locationrecord
-
-	x.Country_short = mesg
-	x.Country_long = mesg
-	x.Region = mesg
-	x.City = mesg
-	x.Isp = mesg
-	x.Domain = mesg
-	x.Zipcode = mesg
-	x.Timezone = mesg
-	x.Netspeed = mesg
-	x.Iddcode = mesg
-	x.Areacode = mesg
-	x.Weatherstationcode = mesg
-	x.Weatherstationname = mesg
-	x.Mcc = mesg
-	x.Mnc = mesg
-	x.Mobilebrand = mesg
-	x.Usagetype = mesg
-
-	return x
-}
-
 // get all fields
-func GetAll(ipaddress string) IP2Locationrecord {
+func GetAll(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, all)
 }
 
 // get country code
-func Get_country_short(ipaddress string) IP2Locationrecord {
+func Get_country_short(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, countryshort)
 }
 
 // get country name
-func Get_country_long(ipaddress string) IP2Locationrecord {
+func Get_country_long(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, countrylong)
 }
 
 // get region
-func Get_region(ipaddress string) IP2Locationrecord {
+func Get_region(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, region)
 }
 
 // get city
-func Get_city(ipaddress string) IP2Locationrecord {
+func Get_city(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, city)
 }
 
 // get isp
-func Get_isp(ipaddress string) IP2Locationrecord {
+func Get_isp(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, isp)
 }
 
 // get latitude
-func Get_latitude(ipaddress string) IP2Locationrecord {
+func Get_latitude(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, latitude)
 }
 
 // get longitude
-func Get_longitude(ipaddress string) IP2Locationrecord {
+func Get_longitude(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, longitude)
 }
 
 // get domain
-func Get_domain(ipaddress string) IP2Locationrecord {
+func Get_domain(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, domain)
 }
 
 // get zip code
-func Get_zipcode(ipaddress string) IP2Locationrecord {
+func Get_zipcode(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, zipcode)
 }
 
 // get time zone
-func Get_timezone(ipaddress string) IP2Locationrecord {
+func Get_timezone(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, timezone)
 }
 
 // get net speed
-func Get_netspeed(ipaddress string) IP2Locationrecord {
+func Get_netspeed(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, netspeed)
 }
 
 // get idd code
-func Get_iddcode(ipaddress string) IP2Locationrecord {
+func Get_iddcode(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, iddcode)
 }
 
 // get area code
-func Get_areacode(ipaddress string) IP2Locationrecord {
+func Get_areacode(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, areacode)
 }
 
 // get weather station code
-func Get_weatherstationcode(ipaddress string) IP2Locationrecord {
+func Get_weatherstationcode(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, weatherstationcode)
 }
 
 // get weather station name
-func Get_weatherstationname(ipaddress string) IP2Locationrecord {
+func Get_weatherstationname(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, weatherstationname)
 }
 
 // get mobile country code
-func Get_mcc(ipaddress string) IP2Locationrecord {
+func Get_mcc(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, mcc)
 }
 
 // get mobile network code
-func Get_mnc(ipaddress string) IP2Locationrecord {
+func Get_mnc(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, mnc)
 }
 
 // get mobile carrier brand
-func Get_mobilebrand(ipaddress string) IP2Locationrecord {
+func Get_mobilebrand(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, mobilebrand)
 }
 
 // get elevation
-func Get_elevation(ipaddress string) IP2Locationrecord {
+func Get_elevation(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, elevation)
 }
 
 // get usage type
-func Get_usagetype(ipaddress string) IP2Locationrecord {
+func Get_usagetype(ipaddress string) (IP2Locationrecord, error) {
 	return query(ipaddress, usagetype)
 }
 
 // main query
-func query(ipaddress string, mode uint32) IP2Locationrecord {
-	x := loadmessage(not_supported) // default message
+func query(ipaddress string, mode uint32) (IP2Locationrecord, error) {
+	var x IP2Locationrecord
 
 	// read metadata
 	if !metaok {
-		x = loadmessage(missing_file)
-		return x
+		return x, fmt.Errorf(missing_file)
 	}
 
 	// check IP type and return IP number & index (if exists)
 	iptype, ipno, ipindex := checkip(ipaddress)
 
 	if iptype == 0 {
-		x = loadmessage(invalid_address)
-		return x
+		return x, fmt.Errorf(invalid_address)
 	}
 
 	var colsize uint32
@@ -667,7 +640,7 @@ func query(ipaddress string, mode uint32) IP2Locationrecord {
 				x.Usagetype = readstr(readuint32(rowoffset + usagetype_position_offset))
 			}
 
-			return x
+			return x, nil
 		} else {
 			if ipno.Cmp(ipfrom) < 0 {
 				high = mid - 1
@@ -676,7 +649,8 @@ func query(ipaddress string, mode uint32) IP2Locationrecord {
 			}
 		}
 	}
-	return x
+
+	return x, fmt.Errorf(not_supported)
 }
 
 // for debugging purposes

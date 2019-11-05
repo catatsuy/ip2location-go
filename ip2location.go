@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"os"
@@ -74,10 +75,17 @@ var mobilebrand_position = [25]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 var elevation_position = [25]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 19, 0, 19}
 var usagetype_position = [25]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 20}
 
-const api_version string = "8.0.3"
+const api_version string = "8.2.0"
 
 var max_ipv4_range = big.NewInt(4294967295)
 var max_ipv6_range = big.NewInt(0)
+var from_v4mapped = big.NewInt(281470681743360)
+var to_v4mapped = big.NewInt(281474976710655)
+var from_6to4 = big.NewInt(0)
+var to_6to4 = big.NewInt(0)
+var from_teredo = big.NewInt(0)
+var to_teredo = big.NewInt(0)
+var last_32bits = big.NewInt(4294967295)
 
 const countryshort uint32 = 0x00001
 const countrylong uint32 = 0x00002
@@ -170,6 +178,22 @@ func checkip(ip string) (iptype uint32, ipnum *big.Int, ipindex uint32) {
 			if v6 != nil {
 				iptype = 6
 				ipnum.SetBytes(v6)
+
+				if ipnum.Cmp(from_v4mapped) >= 0 && ipnum.Cmp(to_v4mapped) <= 0 {
+					// ipv4-mapped ipv6 should treat as ipv4 and read ipv4 data section
+					iptype = 4
+					ipnum.Sub(ipnum, from_v4mapped)
+				} else if ipnum.Cmp(from_6to4) >= 0 && ipnum.Cmp(to_6to4) <= 0 {
+					// 6to4 so need to remap to ipv4
+					iptype = 4
+					ipnum.Rsh(ipnum, 80)
+					ipnum.And(ipnum, last_32bits)
+				} else if ipnum.Cmp(from_teredo) >= 0 && ipnum.Cmp(to_teredo) <= 0 {
+					// Teredo so need to remap to ipv4
+					iptype = 4
+					ipnum.Not(ipnum)
+					ipnum.And(ipnum, last_32bits)
+				}
 			}
 		}
 	}
@@ -198,6 +222,14 @@ func readuint8(pos int64) uint8 {
 		fmt.Println("File read failed:", err)
 	}
 	retval = data[0]
+	return retval
+}
+
+// read unsigned 32-bit integer from slices
+func readuint32_row(row []byte, pos uint32) uint32 {
+	var retval uint32
+	data := row[pos : pos+4]
+	retval = binary.LittleEndian.Uint32(data)
 	return retval
 }
 
@@ -255,6 +287,15 @@ func readstr(pos uint32) string {
 	return retval
 }
 
+// read float from slices
+func readfloat_row(row []byte, pos uint32) float32 {
+	var retval float32
+	data := row[pos : pos+4]
+	bits := binary.LittleEndian.Uint32(data)
+	retval = math.Float32frombits(bits)
+	return retval
+}
+
 // read float
 func readfloat(pos uint32) float32 {
 	pos2 := int64(pos)
@@ -275,6 +316,10 @@ func readfloat(pos uint32) float32 {
 // initialize the component with the database path
 func Open(dbpath string) error {
 	max_ipv6_range.SetString("340282366920938463463374607431768211455", 10)
+	from_6to4.SetString("42545680458834377588178886921629466624", 10)
+	to_6to4.SetString("42550872755692912415807417417958686719", 10)
+	from_teredo.SetString("42540488161975842760550356425300246528", 10)
+	to_teredo.SetString("42540488241204005274814694018844196863", 10)
 
 	var err error
 	f, err = os.Open(dbpath)
@@ -299,80 +344,156 @@ func Open(dbpath string) error {
 	dbt := meta.databasetype
 
 	// since both IPv4 and IPv6 use 4 bytes for the below columns, can just do it once here
+	// if country_position[dbt] != 0 {
+	// country_position_offset = uint32(country_position[dbt] - 1) << 2
+	// country_enabled = true
+	// }
+	// if region_position[dbt] != 0 {
+	// region_position_offset = uint32(region_position[dbt] - 1) << 2
+	// region_enabled = true
+	// }
+	// if city_position[dbt] != 0 {
+	// city_position_offset = uint32(city_position[dbt] - 1) << 2
+	// city_enabled = true
+	// }
+	// if isp_position[dbt] != 0 {
+	// isp_position_offset = uint32(isp_position[dbt] - 1) << 2
+	// isp_enabled = true
+	// }
+	// if domain_position[dbt] != 0 {
+	// domain_position_offset = uint32(domain_position[dbt] - 1) << 2
+	// domain_enabled = true
+	// }
+	// if zipcode_position[dbt] != 0 {
+	// zipcode_position_offset = uint32(zipcode_position[dbt] - 1) << 2
+	// zipcode_enabled = true
+	// }
+	// if latitude_position[dbt] != 0 {
+	// latitude_position_offset = uint32(latitude_position[dbt] - 1) << 2
+	// latitude_enabled = true
+	// }
+	// if longitude_position[dbt] != 0 {
+	// longitude_position_offset = uint32(longitude_position[dbt] - 1) << 2
+	// longitude_enabled = true
+	// }
+	// if timezone_position[dbt] != 0 {
+	// timezone_position_offset = uint32(timezone_position[dbt] - 1) << 2
+	// timezone_enabled = true
+	// }
+	// if netspeed_position[dbt] != 0 {
+	// netspeed_position_offset = uint32(netspeed_position[dbt] - 1) << 2
+	// netspeed_enabled = true
+	// }
+	// if iddcode_position[dbt] != 0 {
+	// iddcode_position_offset = uint32(iddcode_position[dbt] - 1) << 2
+	// iddcode_enabled = true
+	// }
+	// if areacode_position[dbt] != 0 {
+	// areacode_position_offset = uint32(areacode_position[dbt] - 1) << 2
+	// areacode_enabled = true
+	// }
+	// if weatherstationcode_position[dbt] != 0 {
+	// weatherstationcode_position_offset = uint32(weatherstationcode_position[dbt] - 1) << 2
+	// weatherstationcode_enabled = true
+	// }
+	// if weatherstationname_position[dbt] != 0 {
+	// weatherstationname_position_offset = uint32(weatherstationname_position[dbt] - 1) << 2
+	// weatherstationname_enabled = true
+	// }
+	// if mcc_position[dbt] != 0 {
+	// mcc_position_offset = uint32(mcc_position[dbt] - 1) << 2
+	// mcc_enabled = true
+	// }
+	// if mnc_position[dbt] != 0 {
+	// mnc_position_offset = uint32(mnc_position[dbt] - 1) << 2
+	// mnc_enabled = true
+	// }
+	// if mobilebrand_position[dbt] != 0 {
+	// mobilebrand_position_offset = uint32(mobilebrand_position[dbt] - 1) << 2
+	// mobilebrand_enabled = true
+	// }
+	// if elevation_position[dbt] != 0 {
+	// elevation_position_offset = uint32(elevation_position[dbt] - 1) << 2
+	// elevation_enabled = true
+	// }
+	// if usagetype_position[dbt] != 0 {
+	// usagetype_position_offset = uint32(usagetype_position[dbt] - 1) << 2
+	// usagetype_enabled = true
+	// }
 	if country_position[dbt] != 0 {
-		country_position_offset = uint32(country_position[dbt]-1) << 2
+		country_position_offset = uint32(country_position[dbt]-2) << 2
 		country_enabled = true
 	}
 	if region_position[dbt] != 0 {
-		region_position_offset = uint32(region_position[dbt]-1) << 2
+		region_position_offset = uint32(region_position[dbt]-2) << 2
 		region_enabled = true
 	}
 	if city_position[dbt] != 0 {
-		city_position_offset = uint32(city_position[dbt]-1) << 2
+		city_position_offset = uint32(city_position[dbt]-2) << 2
 		city_enabled = true
 	}
 	if isp_position[dbt] != 0 {
-		isp_position_offset = uint32(isp_position[dbt]-1) << 2
+		isp_position_offset = uint32(isp_position[dbt]-2) << 2
 		isp_enabled = true
 	}
 	if domain_position[dbt] != 0 {
-		domain_position_offset = uint32(domain_position[dbt]-1) << 2
+		domain_position_offset = uint32(domain_position[dbt]-2) << 2
 		domain_enabled = true
 	}
 	if zipcode_position[dbt] != 0 {
-		zipcode_position_offset = uint32(zipcode_position[dbt]-1) << 2
+		zipcode_position_offset = uint32(zipcode_position[dbt]-2) << 2
 		zipcode_enabled = true
 	}
 	if latitude_position[dbt] != 0 {
-		latitude_position_offset = uint32(latitude_position[dbt]-1) << 2
+		latitude_position_offset = uint32(latitude_position[dbt]-2) << 2
 		latitude_enabled = true
 	}
 	if longitude_position[dbt] != 0 {
-		longitude_position_offset = uint32(longitude_position[dbt]-1) << 2
+		longitude_position_offset = uint32(longitude_position[dbt]-2) << 2
 		longitude_enabled = true
 	}
 	if timezone_position[dbt] != 0 {
-		timezone_position_offset = uint32(timezone_position[dbt]-1) << 2
+		timezone_position_offset = uint32(timezone_position[dbt]-2) << 2
 		timezone_enabled = true
 	}
 	if netspeed_position[dbt] != 0 {
-		netspeed_position_offset = uint32(netspeed_position[dbt]-1) << 2
+		netspeed_position_offset = uint32(netspeed_position[dbt]-2) << 2
 		netspeed_enabled = true
 	}
 	if iddcode_position[dbt] != 0 {
-		iddcode_position_offset = uint32(iddcode_position[dbt]-1) << 2
+		iddcode_position_offset = uint32(iddcode_position[dbt]-2) << 2
 		iddcode_enabled = true
 	}
 	if areacode_position[dbt] != 0 {
-		areacode_position_offset = uint32(areacode_position[dbt]-1) << 2
+		areacode_position_offset = uint32(areacode_position[dbt]-2) << 2
 		areacode_enabled = true
 	}
 	if weatherstationcode_position[dbt] != 0 {
-		weatherstationcode_position_offset = uint32(weatherstationcode_position[dbt]-1) << 2
+		weatherstationcode_position_offset = uint32(weatherstationcode_position[dbt]-2) << 2
 		weatherstationcode_enabled = true
 	}
 	if weatherstationname_position[dbt] != 0 {
-		weatherstationname_position_offset = uint32(weatherstationname_position[dbt]-1) << 2
+		weatherstationname_position_offset = uint32(weatherstationname_position[dbt]-2) << 2
 		weatherstationname_enabled = true
 	}
 	if mcc_position[dbt] != 0 {
-		mcc_position_offset = uint32(mcc_position[dbt]-1) << 2
+		mcc_position_offset = uint32(mcc_position[dbt]-2) << 2
 		mcc_enabled = true
 	}
 	if mnc_position[dbt] != 0 {
-		mnc_position_offset = uint32(mnc_position[dbt]-1) << 2
+		mnc_position_offset = uint32(mnc_position[dbt]-2) << 2
 		mnc_enabled = true
 	}
 	if mobilebrand_position[dbt] != 0 {
-		mobilebrand_position_offset = uint32(mobilebrand_position[dbt]-1) << 2
+		mobilebrand_position_offset = uint32(mobilebrand_position[dbt]-2) << 2
 		mobilebrand_enabled = true
 	}
 	if elevation_position[dbt] != 0 {
-		elevation_position_offset = uint32(elevation_position[dbt]-1) << 2
+		elevation_position_offset = uint32(elevation_position[dbt]-2) << 2
 		elevation_enabled = true
 	}
 	if usagetype_position[dbt] != 0 {
-		usagetype_position_offset = uint32(usagetype_position[dbt]-1) << 2
+		usagetype_position_offset = uint32(usagetype_position[dbt]-2) << 2
 		usagetype_enabled = true
 	}
 
@@ -542,7 +663,7 @@ func query(ipaddress string, mode uint32) (IP2Locationrecord, error) {
 	}
 
 	if ipno.Cmp(maxip) >= 0 {
-		ipno = ipno.Sub(ipno, big.NewInt(1))
+		ipno.Sub(ipno, big.NewInt(1))
 	}
 
 	for low <= high {
@@ -559,89 +680,117 @@ func query(ipaddress string, mode uint32) (IP2Locationrecord, error) {
 		}
 
 		if ipno.Cmp(ipfrom) >= 0 && ipno.Cmp(ipto) < 0 {
+			var firstcol uint32 = 4 // 4 bytes for ip from
 			if iptype == 6 {
-				rowoffset = rowoffset + 12 // coz below is assuming all columns are 4 bytes, so got 12 left to go to make 16 bytes total
+				firstcol = 16 // 16 bytes for ipv6
+				// rowoffset = rowoffset + 12 // coz below is assuming all columns are 4 bytes, so got 12 left to go to make 16 bytes total
+			}
+
+			row := make([]byte, colsize-firstcol) // exclude the ip from field
+			_, err := f.ReadAt(row, int64(rowoffset+firstcol-1))
+			if err != nil {
+				fmt.Println("File read failed:", err)
 			}
 
 			if mode&countryshort == 1 && country_enabled {
-				x.Country_short = readstr(readuint32(rowoffset + country_position_offset))
+				// x.Country_short = readstr(readuint32(rowoffset + country_position_offset))
+				x.Country_short = readstr(readuint32_row(row, country_position_offset))
 			}
 
 			if mode&countrylong != 0 && country_enabled {
-				x.Country_long = readstr(readuint32(rowoffset+country_position_offset) + 3)
+				// x.Country_long = readstr(readuint32(rowoffset + country_position_offset) + 3)
+				x.Country_long = readstr(readuint32_row(row, country_position_offset) + 3)
 			}
 
 			if mode&region != 0 && region_enabled {
-				x.Region = readstr(readuint32(rowoffset + region_position_offset))
+				// x.Region = readstr(readuint32(rowoffset + region_position_offset))
+				x.Region = readstr(readuint32_row(row, region_position_offset))
 			}
 
 			if mode&city != 0 && city_enabled {
-				x.City = readstr(readuint32(rowoffset + city_position_offset))
+				// x.City = readstr(readuint32(rowoffset + city_position_offset))
+				x.City = readstr(readuint32_row(row, city_position_offset))
 			}
 
 			if mode&isp != 0 && isp_enabled {
-				x.Isp = readstr(readuint32(rowoffset + isp_position_offset))
+				// x.Isp = readstr(readuint32(rowoffset + isp_position_offset))
+				x.Isp = readstr(readuint32_row(row, isp_position_offset))
 			}
 
 			if mode&latitude != 0 && latitude_enabled {
-				x.Latitude = readfloat(rowoffset + latitude_position_offset)
+				// x.Latitude = readfloat(rowoffset + latitude_position_offset)
+				x.Latitude = readfloat_row(row, latitude_position_offset)
 			}
 
 			if mode&longitude != 0 && longitude_enabled {
-				x.Longitude = readfloat(rowoffset + longitude_position_offset)
+				// x.Longitude = readfloat(rowoffset + longitude_position_offset)
+				x.Longitude = readfloat_row(row, longitude_position_offset)
 			}
 
 			if mode&domain != 0 && domain_enabled {
-				x.Domain = readstr(readuint32(rowoffset + domain_position_offset))
+				// x.Domain = readstr(readuint32(rowoffset + domain_position_offset))
+				x.Domain = readstr(readuint32_row(row, domain_position_offset))
 			}
 
 			if mode&zipcode != 0 && zipcode_enabled {
-				x.Zipcode = readstr(readuint32(rowoffset + zipcode_position_offset))
+				// x.Zipcode = readstr(readuint32(rowoffset + zipcode_position_offset))
+				x.Zipcode = readstr(readuint32_row(row, zipcode_position_offset))
 			}
 
 			if mode&timezone != 0 && timezone_enabled {
-				x.Timezone = readstr(readuint32(rowoffset + timezone_position_offset))
+				// x.Timezone = readstr(readuint32(rowoffset + timezone_position_offset))
+				x.Timezone = readstr(readuint32_row(row, timezone_position_offset))
 			}
 
 			if mode&netspeed != 0 && netspeed_enabled {
-				x.Netspeed = readstr(readuint32(rowoffset + netspeed_position_offset))
+				// x.Netspeed = readstr(readuint32(rowoffset + netspeed_position_offset))
+				x.Netspeed = readstr(readuint32_row(row, netspeed_position_offset))
 			}
 
 			if mode&iddcode != 0 && iddcode_enabled {
-				x.Iddcode = readstr(readuint32(rowoffset + iddcode_position_offset))
+				// x.Iddcode = readstr(readuint32(rowoffset + iddcode_position_offset))
+				x.Iddcode = readstr(readuint32_row(row, iddcode_position_offset))
 			}
 
 			if mode&areacode != 0 && areacode_enabled {
-				x.Areacode = readstr(readuint32(rowoffset + areacode_position_offset))
+				// x.Areacode = readstr(readuint32(rowoffset + areacode_position_offset))
+				x.Areacode = readstr(readuint32_row(row, areacode_position_offset))
 			}
 
 			if mode&weatherstationcode != 0 && weatherstationcode_enabled {
-				x.Weatherstationcode = readstr(readuint32(rowoffset + weatherstationcode_position_offset))
+				// x.Weatherstationcode = readstr(readuint32(rowoffset + weatherstationcode_position_offset))
+				x.Weatherstationcode = readstr(readuint32_row(row, weatherstationcode_position_offset))
 			}
 
 			if mode&weatherstationname != 0 && weatherstationname_enabled {
-				x.Weatherstationname = readstr(readuint32(rowoffset + weatherstationname_position_offset))
+				// x.Weatherstationname = readstr(readuint32(rowoffset + weatherstationname_position_offset))
+				x.Weatherstationname = readstr(readuint32_row(row, weatherstationname_position_offset))
 			}
 
 			if mode&mcc != 0 && mcc_enabled {
-				x.Mcc = readstr(readuint32(rowoffset + mcc_position_offset))
+				// x.Mcc = readstr(readuint32(rowoffset + mcc_position_offset))
+				x.Mcc = readstr(readuint32_row(row, mcc_position_offset))
 			}
 
 			if mode&mnc != 0 && mnc_enabled {
-				x.Mnc = readstr(readuint32(rowoffset + mnc_position_offset))
+				// x.Mnc = readstr(readuint32(rowoffset + mnc_position_offset))
+				x.Mnc = readstr(readuint32_row(row, mnc_position_offset))
 			}
 
 			if mode&mobilebrand != 0 && mobilebrand_enabled {
-				x.Mobilebrand = readstr(readuint32(rowoffset + mobilebrand_position_offset))
+				// x.Mobilebrand = readstr(readuint32(rowoffset + mobilebrand_position_offset))
+				x.Mobilebrand = readstr(readuint32_row(row, mobilebrand_position_offset))
 			}
 
 			if mode&elevation != 0 && elevation_enabled {
-				f, _ := strconv.ParseFloat(readstr(readuint32(rowoffset+elevation_position_offset)), 32)
+				// f, _ := strconv.ParseFloat(readstr(readuint32(rowoffset + elevation_position_offset)), 32)
+				f, _ := strconv.ParseFloat(readstr(readuint32_row(row, elevation_position_offset)), 32)
 				x.Elevation = float32(f)
 			}
 
 			if mode&usagetype != 0 && usagetype_enabled {
-				x.Usagetype = readstr(readuint32(rowoffset + usagetype_position_offset))
+				// x.Usagetype = readstr(readuint32(rowoffset + usagetype_position_offset))
+				x.Usagetype = readstr(readuint32_row(row, usagetype_position_offset))
 			}
 
 			x.IPFrom = ipfrom.Int64()

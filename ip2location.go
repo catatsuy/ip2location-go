@@ -689,7 +689,7 @@ func query(ipaddress string, mode uint32) (IP2Locationrecord, error) {
 			row := make([]byte, colsize-firstcol) // exclude the ip from field
 			_, err := f.ReadAt(row, int64(rowoffset+firstcol-1))
 			if err != nil {
-				fmt.Println("File read failed:", err)
+				return x, err
 			}
 
 			if mode&countryshort == 1 && country_enabled {
